@@ -5,24 +5,24 @@ from docx import Document
 # from docx2pdf import convert
 
 ARQUIVO_RESULTADOS = "resultados_boletim.xlsx"
-MODELO = "modelo_boletim.docx"
+PASTA_MODELOS = "Modelos"   # nome da pasta igual ao que está no seu diretório
 PASTA_SAIDA = "boletins_pdf"
 
-# quais chaves esperamos encontrar no Excel e no modelo
-CHAVES = ["Aluno","Turma","Nivel","Professor",
-          "Comunicacao","Compreensao","Interesse","Colaboracao","Engajamento"]
+# Mapeamento de nível -> modelo correspondente
+MAPA_MODELOS = {
+    "Lion Stars": "Modelo Boletim - Lion stars.docx",
+    "Junior": "Modelo Boletim - Junior.docx",
+    "Adultos": "Modelo Boletim - Adolescentes e Adultos.docx"
+}
 
 def _replace_all(texto: str, dados: dict) -> str:
-    """Substitui todos os <<CAMPO>> presentes em 'texto' usando 'dados'."""
-    for k in CHAVES:
-        val = dados.get(k, "")
+    for k, val in dados.items():
         if pd.isna(val):
             val = ""
         texto = texto.replace(f"<<{k}>>", str(val))
     return texto
 
 def _replace_in_paragraph(par, dados):
-    # Concatena todos os runs, substitui e regrava com segurança
     old = "".join(run.text for run in par.runs) or par.text
     new = _replace_all(old, dados)
     if new != old:
@@ -33,17 +33,14 @@ def _replace_in_paragraph(par, dados):
             run.text = ""
 
 def _replace_in_cell(cell, dados):
-    # Garante ao menos um parágrafo
     if not cell.paragraphs:
         cell.add_paragraph("")
     for p in list(cell.paragraphs):
         _replace_in_paragraph(p, dados)
 
 def substituir_texto(doc: Document, dados: dict):
-    # Parágrafos fora de tabelas
     for p in doc.paragraphs:
         _replace_in_paragraph(p, dados)
-    # Dentro das tabelas
     for t in doc.tables:
         for row in t.rows:
             for cell in row.cells:
@@ -51,41 +48,45 @@ def substituir_texto(doc: Document, dados: dict):
 
 def safe_filename(s: str) -> str:
     s = str(s)
-    s = re.sub(r'[\\/:*?"<>|]+', "_", s)  # caracteres inválidos no Windows
+    s = re.sub(r'[\\/:*?"<>|]+', "_", s)  # tira caracteres inválidos
     return s.strip()
 
 def gerar_boletins():
     df = pd.read_excel(ARQUIVO_RESULTADOS)
 
-    # Harmoniza coluna "Nome" -> "Aluno" caso venha assim
+    # Renomeia se vier "Nome" ao invés de "Aluno"
     if "Nome" in df.columns and "Aluno" not in df.columns:
         df = df.rename(columns={"Nome": "Aluno"})
 
-    # Cria/limpa pasta de saída
     os.makedirs(PASTA_SAIDA, exist_ok=True)
-    for arq in os.listdir(PASTA_SAIDA):
-        try:
-            os.remove(os.path.join(PASTA_SAIDA, arq))
-        except:
-            pass
 
     for _, row in df.iterrows():
-        dados = {k: row[k] for k in CHAVES if k in row.index}
-        doc = Document(MODELO)
+        nivel = str(row.get("Nivel", "")).strip()
+
+        if nivel not in MAPA_MODELOS:
+            print(f"⚠️ Nível {nivel} não tem modelo configurado, pulando {row['Aluno']}")
+            continue
+
+        caminho_modelo = os.path.join(PASTA_MODELOS, MAPA_MODELOS[nivel])
+        if not os.path.exists(caminho_modelo):
+            print(f"❌ Modelo não encontrado: {caminho_modelo}")
+            continue
+
+        dados = {col: row[col] for col in df.columns if col in row.index}
+        doc = Document(caminho_modelo)
         substituir_texto(doc, dados)
 
-        # Nome do arquivo: Aluno_Turma_boletim.docx
         nome = safe_filename(dados.get("Aluno", "Aluno"))
         turma = safe_filename(dados.get("Turma", "Turma"))
-        nome_docx = f"{nome}_{turma}_boletim.docx"
+        nome_docx = f"{nome}_{turma}_{nivel}.docx"
         caminho_docx = os.path.join(PASTA_SAIDA, nome_docx)
 
         doc.save(caminho_docx)
 
-        # Para PDF via Word, descomente a linha abaixo e instale/tenha Word:
-        # convert(caminho_docx, os.path.join(PASTA_SAIDA, f"{nome}_{turma}_boletim.pdf"))
+        # Se quiser gerar também em PDF → descomente:
+        # convert(caminho_docx, os.path.join(PASTA_SAIDA, f"{nome}_{turma}_{nivel}.pdf"))
 
-    print(f"✅ Boletins gerados em: {PASTA_SAIDA}")
+        print(f"✅ Boletim gerado: {caminho_docx}")
 
 if __name__ == "__main__":
     gerar_boletins()
