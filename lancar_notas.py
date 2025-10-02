@@ -65,7 +65,7 @@ class BoletimApp:
         self.index = 0
 
         self.root.title("Sistema de Boletins")
-        self.root.geometry("700x650")
+        self.root.geometry("780x650")
 
         # seleção de nível
         frame_sel = tk.Frame(root)
@@ -77,6 +77,13 @@ class BoletimApp:
 
         self.btn_carregar = tk.Button(frame_sel, text="Carregar turma", command=self.carregar_turma)
         self.btn_carregar.pack(side="left", padx=10)
+
+        # seleção de aluno específico
+        tk.Label(frame_sel, text="Aluno específico:").pack(side="left", padx=5)
+        self.combo_aluno_especifico = ttk.Combobox(frame_sel, values=[], state="readonly", width=30)
+        self.combo_aluno_especifico.pack(side="left", padx=5)
+        self.btn_carregar_aluno = tk.Button(frame_sel, text="Carregar aluno", command=self.carregar_aluno_especifico)
+        self.btn_carregar_aluno.pack(side="left", padx=10)
 
         self.label_nome = tk.Label(root, text="", font=("Arial", 14, "bold"))
         self.label_nome.pack(pady=10)
@@ -110,10 +117,31 @@ class BoletimApp:
             messagebox.showinfo("Info", f"Não há alunos para {nivel}.")
             return
 
+        # preencher combobox de aluno específico
+        self.combo_aluno_especifico["values"] = [a["Nome"] for a in self.alunos_filtrados]
+
         self.index = 0
         self.mostrar_aluno()
 
-    def criar_campos(self, criterios):
+    def carregar_aluno_especifico(self):
+        nome = self.combo_aluno_especifico.get()
+        nivel = self.combo_nivel.get()
+        if not nome or not nivel:
+            messagebox.showwarning("Atenção", "Selecione um nível e um aluno.")
+            return
+
+        aluno = next((a for a in self.alunos if a["Nome"] == nome and a["Nivel"] == nivel), None)
+        if not aluno:
+            messagebox.showerror("Erro", "Aluno não encontrado.")
+            return
+
+        self.aluno_atual = aluno
+        criterios = CRITERIOS_POR_NIVEL.get(nivel, [])
+        aluno_salvo = self.buscar_resultado_salvo(aluno)
+        self.label_nome.config(text=f"Aluno: {aluno['Nome']}  |  Turma: {aluno.get('Turma','')}  |  Nível: {nivel}")
+        self.criar_campos(criterios, aluno_existente=aluno_salvo)
+
+    def criar_campos(self, criterios, aluno_existente=None):
         for widget in self.frame_criterios.winfo_children():
             widget.destroy()
         self.combos.clear()
@@ -124,6 +152,13 @@ class BoletimApp:
             lbl.pack(side="left")
             cb = ttk.Combobox(frame, values=OPCOES, state="readonly", width=5)
             cb.pack(side="left", padx=10)
+
+            # preencher se já existir nota lançada
+            if aluno_existente:
+                chave = MAPEAMENTO_CHAVES.get(criterio, criterio)
+                if chave in aluno_existente:
+                    cb.set(aluno_existente[chave])
+
             self.combos[criterio] = cb
 
     def mostrar_aluno(self):
@@ -133,14 +168,18 @@ class BoletimApp:
             return
 
         aluno = self.alunos_filtrados[self.index]
-        nome = aluno.get("Nome", "")
-        turma = aluno.get("Turma", "")
-        nivel = aluno.get("Nivel", "")
-
+        self.aluno_atual = aluno
+        nome, turma, nivel = aluno.get("Nome", ""), aluno.get("Turma", ""), aluno.get("Nivel", "")
+        aluno_salvo = self.buscar_resultado_salvo(aluno)
         self.label_nome.config(text=f"Aluno: {nome}  |  Turma: {turma}  |  Nível: {nivel}")
         criterios = CRITERIOS_POR_NIVEL.get(nivel, [])
-        self.criar_campos(criterios)
-        self.aluno_atual = aluno
+        self.criar_campos(criterios, aluno_existente=aluno_salvo)
+
+    def buscar_resultado_salvo(self, aluno):
+        return next(
+            (r for r in self.resultados if r["Aluno"] == aluno["Nome"] and r["Turma"] == aluno["Turma"]),
+            None
+        )
 
     def salvar(self):
         if not hasattr(self, "aluno_atual"):
@@ -176,9 +215,13 @@ class BoletimApp:
             )
             notas["Nota"] = nota_final if nota_final is not None else int((media_min+media_max)/2)
 
+        # substituir se já existe
+        self.resultados = [r for r in self.resultados if not (r["Aluno"] == aluno_row["Nome"] and r["Turma"] == aluno_row["Turma"])]
         self.resultados.append(notas)
+
         df = pd.DataFrame(self.resultados)
         df.to_excel("resultados_boletim.xlsx", index=False)
+
         self.index += 1
         self.mostrar_aluno()
 
