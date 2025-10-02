@@ -1,8 +1,10 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 import pandas as pd
+import os
 
 ARQUIVO_ALUNOS = "alunos.xlsx"
+ARQUIVO_RESULTADOS = "resultados_boletim.xlsx"
 
 CRITERIOS_POR_NIVEL = {
     "Lion Stars": [
@@ -56,16 +58,16 @@ NOTAS_RANGE = {
 }
 
 class BoletimApp:
-    def __init__(self, root, alunos, professor):
+    def __init__(self, root, alunos, professor, resultados_existentes=None):
         self.root = root
         self.alunos = alunos
         self.professor = professor
-        self.resultados = []
+        self.resultados = resultados_existentes or []
         self.alunos_filtrados = []
         self.index = 0
 
         self.root.title("Sistema de Boletins")
-        self.root.geometry("850x700")
+        self.root.geometry("850x720")
 
         # seleção de nível
         frame_sel = tk.Frame(root)
@@ -117,9 +119,7 @@ class BoletimApp:
             messagebox.showinfo("Info", f"Não há alunos para {nivel}.")
             return
 
-        # preencher combobox de aluno específico
         self.combo_aluno_especifico["values"] = [a["Nome"] for a in self.alunos_filtrados]
-
         self.index = 0
         self.mostrar_aluno()
 
@@ -146,40 +146,35 @@ class BoletimApp:
             widget.destroy()
         self.combos.clear()
 
-        # campo extra para Adultos → subníveis
         self.combo_cultura = None
         self.combo_upper = None
-
         nivel_atual = getattr(self, "aluno_atual", {}).get("Nivel", "") if hasattr(self, "aluno_atual") else ""
 
         if nivel_atual == "Adultos":
             frame_sub = tk.Frame(self.frame_criterios)
             frame_sub.pack(pady=10, fill="x")
 
-            # Cultura Adults
             lbl_cultura = tk.Label(frame_sub, text="📘 CULTURA ADULTS", font=("Arial", 12, "bold"), fg="navy")
             lbl_cultura.grid(row=0, column=0, sticky="w", padx=5)
             self.combo_cultura = ttk.Combobox(frame_sub,
-                values=["Express Pack 1", "Express Pack 2", "Express Pack 3",
+                values=["", "Express Pack 1", "Express Pack 2", "Express Pack 3",
                         "New Plus Adult 1", "New Plus Adult 2", "New Plus Adult 3"],
                 state="readonly", width=25)
             self.combo_cultura.grid(row=0, column=1, padx=10)
 
-            # Upper & Master
             lbl_upper = tk.Label(frame_sub, text="📙 UPPER & MASTER", font=("Arial", 12, "bold"), fg="darkgreen")
             lbl_upper.grid(row=1, column=0, sticky="w", padx=5, pady=(8,0))
             self.combo_upper = ttk.Combobox(frame_sub,
-                values=["Upper Intermediate 1", "Upper Intermediate 2", "Upper Intermediate 3",
+                values=["", "Upper Intermediate 1", "Upper Intermediate 2", "Upper Intermediate 3",
                         "MAC 1", "Master 2"],
                 state="readonly", width=25)
             self.combo_upper.grid(row=1, column=1, padx=10, pady=(8,0))
 
-            # espaço extra antes das notas
             tk.Label(self.frame_criterios, text="").pack(pady=10)
 
         for criterio in criterios:
             frame = tk.Frame(self.frame_criterios)
-            frame.pack(pady=10, fill="x")  # mais espaçamento entre notas
+            frame.pack(pady=10, fill="x")
             lbl = tk.Label(frame, text=criterio, width=40, anchor="w", font=("Arial", 11))
             lbl.pack(side="left")
             cb = ttk.Combobox(frame, values=OPCOES, state="readonly", width=5)
@@ -191,6 +186,16 @@ class BoletimApp:
                     cb.set(aluno_existente[chave])
 
             self.combos[criterio] = cb
+
+        # Mostrar notas já lançadas para adultos
+        if nivel_atual == "Adultos" and aluno_existente:
+            nota_final = aluno_existente.get("Nota", "")
+            nota_sugerida = aluno_existente.get("NotaSugerida", "")
+            if nota_final or nota_sugerida:
+                lbl_notas = tk.Label(self.frame_criterios,
+                                     text=f"Nota Final: {nota_final}   (Sugerida: {nota_sugerida})",
+                                     font=("Arial", 10, "italic"), fg="gray25")
+                lbl_notas.pack(pady=5)
 
     def mostrar_aluno(self):
         if self.index < 0: self.index = 0
@@ -237,7 +242,6 @@ class BoletimApp:
                 valores_min.append(min_val)
                 valores_max.append(max_val)
 
-        # Ajustar subnível dos Adultos
         if nivel == "Adultos":
             subnivel_cultura = self.combo_cultura.get() if self.combo_cultura else ""
             subnivel_upper = self.combo_upper.get() if self.combo_upper else ""
@@ -267,7 +271,7 @@ class BoletimApp:
         self.resultados.append(notas)
 
         df = pd.DataFrame(self.resultados)
-        df.to_excel("resultados_boletim.xlsx", index=False)
+        df.to_excel(ARQUIVO_RESULTADOS, index=False)
 
         self.index += 1
         self.mostrar_aluno()
@@ -293,9 +297,18 @@ if __name__ == "__main__":
     df_alunos = df_alunos.sort_values(by=["Nivel", "Turma", "Nome"])
     lista_alunos = df_alunos.to_dict(orient="records")
 
+    # carregar resultados já existentes
+    resultados_existentes = []
+    if os.path.exists(ARQUIVO_RESULTADOS):
+        try:
+            resultados_existentes = pd.read_excel(ARQUIVO_RESULTADOS).to_dict(orient="records")
+            print(f"✅ {len(resultados_existentes)} registros carregados de {ARQUIVO_RESULTADOS}")
+        except Exception as e:
+            print(f"⚠️ Não foi possível carregar resultados anteriores: {e}")
+
     root = tk.Tk()
     root.withdraw()
     professor = simpledialog.askstring("Professor", "Digite o nome do professor:")
     root.deiconify()
-    app = BoletimApp(root, lista_alunos, professor or "")
+    app = BoletimApp(root, lista_alunos, professor or "", resultados_existentes)
     root.mainloop()

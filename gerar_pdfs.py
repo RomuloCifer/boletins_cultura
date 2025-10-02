@@ -8,11 +8,11 @@ ARQUIVO_RESULTADOS = "resultados_boletim.xlsx"
 PASTA_MODELOS = "Modelos"   # nome da pasta igual ao que está no seu diretório
 PASTA_SAIDA = "boletins_pdf"
 
-# Mapeamento de nível -> modelo correspondente
+# Mapeamento de nível fixo -> modelo correspondente
 MAPA_MODELOS = {
     "Lion Stars": "Modelo Boletim - Lion stars.docx",
     "Junior": "Modelo Boletim - Junior.docx",
-    "Adultos": "Modelo Boletim - Adolescentes e Adultos.docx"
+    "Adultos": "Modelo Boletim - Adolescentes e Adultos.docx"  # único modelo para todos os adultos
 }
 
 def _replace_all(texto: str, dados: dict) -> str:
@@ -48,7 +48,7 @@ def substituir_texto(doc: Document, dados: dict):
 
 def safe_filename(s: str) -> str:
     s = str(s)
-    s = re.sub(r'[\\/:*?"<>|]+', "_", s)  # tira caracteres inválidos
+    s = re.sub(r'[\\/:*?"<>|]+', "_", s)
     return s.strip()
 
 def gerar_boletins():
@@ -63,11 +63,15 @@ def gerar_boletins():
     for _, row in df.iterrows():
         nivel = str(row.get("Nivel", "")).strip()
 
-        if nivel not in MAPA_MODELOS:
+        # regra especial: qualquer Adultos usa o mesmo modelo
+        if nivel.startswith("Adultos"):
+            caminho_modelo = os.path.join(PASTA_MODELOS, MAPA_MODELOS["Adultos"])
+        elif nivel in MAPA_MODELOS:
+            caminho_modelo = os.path.join(PASTA_MODELOS, MAPA_MODELOS[nivel])
+        else:
             print(f"⚠️ Nível {nivel} não tem modelo configurado, pulando {row['Aluno']}")
             continue
 
-        caminho_modelo = os.path.join(PASTA_MODELOS, MAPA_MODELOS[nivel])
         if not os.path.exists(caminho_modelo):
             print(f"❌ Modelo não encontrado: {caminho_modelo}")
             continue
@@ -78,12 +82,12 @@ def gerar_boletins():
 
         nome = safe_filename(dados.get("Aluno", "Aluno"))
         turma = safe_filename(dados.get("Turma", "Turma"))
-        nome_docx = f"{nome}_{turma}_{nivel}.docx"
+        nome_docx = f"{nome}_{turma}_{nivel}.docx".replace("/", "-")
         caminho_docx = os.path.join(PASTA_SAIDA, nome_docx)
 
         doc.save(caminho_docx)
 
-        # Se quiser gerar também em PDF → descomente:
+        # Se quiser gerar também PDF → descomente:
         # convert(caminho_docx, os.path.join(PASTA_SAIDA, f"{nome}_{turma}_{nivel}.pdf"))
 
         print(f"✅ Boletim gerado: {caminho_docx}")
