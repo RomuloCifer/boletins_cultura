@@ -1,19 +1,50 @@
-import os, re
+import os, re, sys
 import pandas as pd
 from docx import Document
-# Se quiser converter para PDF via Word, descomente:
-# from docx2pdf import convert
+# from docx2pdf import convert  # opcional (Word no Windows)
 
-ARQUIVO_RESULTADOS = "resultados_boletim.xlsx"
-PASTA_MODELOS = "Modelos"   # nome da pasta igual ao que está no seu diretório
-PASTA_SAIDA = "boletins_pdf"
+# ================== SUPORTE A CAMINHOS (.py e .exe) ==================
+def app_dir() -> str:
+    if getattr(sys, "_MEIPASS", None):
+        return sys._MEIPASS
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+def resource_path(*paths):
+    base = app_dir()
+    return os.path.join(base, *paths)
+
+BASE = app_dir()
+
+# RESULTADOS e SAÍDA ao lado do app (graváveis)
+ARQUIVO_RESULTADOS = os.path.join(BASE, "resultados_boletim.xlsx")
+PASTA_SAIDA        = os.path.join(BASE, "boletins_pdf")
+os.makedirs(PASTA_SAIDA, exist_ok=True)
+
+# MODELOS (somente leitura) embutidos no EXE ou presentes na pasta do projeto
+PASTA_MODELOS = resource_path("Modelos")
 
 # Mapeamento de nível fixo -> modelo correspondente
 MAPA_MODELOS = {
     "Lion Stars": "Modelo Boletim - Lion stars.docx",
     "Junior": "Modelo Boletim - Junior.docx",
-    "Adultos": "Modelo Boletim - Adolescentes e Adultos.docx"  # único modelo para todos os adultos
+    "Adultos": "Modelo Boletim - Adolescentes e Adultos.docx",
+    "Antigo": "Modelo Boletim - Antigo.docx",
 }
+
+# ====== LISTAS DE SUBNÍVEIS ======
+ANTIGO_SUBNIVEIS = [
+    "High Resolution 4", "High Resolution 5", "High Resolution 6",
+    "Basic 5", "Basic 6",
+    "New Plus Adult 3",
+]
+
+ADULTOS_SUBNIVEIS = [
+    "Express Pack 1", "Express Pack 2", "Express Pack 3",
+    "Inter Teens 1", "Inter Teens 2", "Inter Teens 3",
+    "Teen League 1", "Teen League 2", "Teen League 3", "Teen League 4",
+]
 
 def _replace_all(texto: str, dados: dict) -> str:
     for k, val in dados.items():
@@ -54,22 +85,22 @@ def safe_filename(s: str) -> str:
 def gerar_boletins():
     df = pd.read_excel(ARQUIVO_RESULTADOS)
 
-    # Renomeia se vier "Nome" ao invés de "Aluno"
     if "Nome" in df.columns and "Aluno" not in df.columns:
         df = df.rename(columns={"Nome": "Aluno"})
 
-    os.makedirs(PASTA_SAIDA, exist_ok=True)
-
     for _, row in df.iterrows():
-        nivel = str(row.get("Nivel", "")).strip()
+        nivel  = str(row.get("Nivel", "")).strip()    # ex.: "High Resolution 5" ou "Inter Teens 2"
+        modelo = str(row.get("Modelo", "")).strip()   # "Antigo" quando for um dos antigos
 
-        # regra especial: qualquer Adultos usa o mesmo modelo
-        if nivel.startswith("Adultos"):
+        # Escolha do modelo:
+        if modelo == "Antigo" or nivel in ANTIGO_SUBNIVEIS:
+            caminho_modelo = os.path.join(PASTA_MODELOS, MAPA_MODELOS["Antigo"])
+        elif nivel in ADULTOS_SUBNIVEIS or nivel.startswith("Adultos"):
             caminho_modelo = os.path.join(PASTA_MODELOS, MAPA_MODELOS["Adultos"])
         elif nivel in MAPA_MODELOS:
             caminho_modelo = os.path.join(PASTA_MODELOS, MAPA_MODELOS[nivel])
         else:
-            print(f"⚠️ Nível {nivel} não tem modelo configurado, pulando {row['Aluno']}")
+            print(f"⚠️ Nível/Modelo sem template: Nivel='{nivel}', Modelo='{modelo}' — pulando {row.get('Aluno', '')}")
             continue
 
         if not os.path.exists(caminho_modelo):
@@ -87,7 +118,7 @@ def gerar_boletins():
 
         doc.save(caminho_docx)
 
-        # Se quiser gerar também PDF → descomente:
+        # Para PDF automático via Word (Windows + Office), descomente:
         # convert(caminho_docx, os.path.join(PASTA_SAIDA, f"{nome}_{turma}_{nivel}.pdf"))
 
         print(f"✅ Boletim gerado: {caminho_docx}")
