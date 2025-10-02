@@ -65,7 +65,7 @@ class BoletimApp:
         self.index = 0
 
         self.root.title("Sistema de Boletins")
-        self.root.geometry("780x650")
+        self.root.geometry("850x700")
 
         # seleção de nível
         frame_sel = tk.Frame(root)
@@ -145,15 +145,46 @@ class BoletimApp:
         for widget in self.frame_criterios.winfo_children():
             widget.destroy()
         self.combos.clear()
+
+        # campo extra para Adultos → subníveis
+        self.combo_cultura = None
+        self.combo_upper = None
+
+        nivel_atual = getattr(self, "aluno_atual", {}).get("Nivel", "") if hasattr(self, "aluno_atual") else ""
+
+        if nivel_atual == "Adultos":
+            frame_sub = tk.Frame(self.frame_criterios)
+            frame_sub.pack(pady=10, fill="x")
+
+            # Cultura Adults
+            lbl_cultura = tk.Label(frame_sub, text="📘 CULTURA ADULTS", font=("Arial", 12, "bold"), fg="navy")
+            lbl_cultura.grid(row=0, column=0, sticky="w", padx=5)
+            self.combo_cultura = ttk.Combobox(frame_sub,
+                values=["Express Pack 1", "Express Pack 2", "Express Pack 3",
+                        "New Plus Adult 1", "New Plus Adult 2", "New Plus Adult 3"],
+                state="readonly", width=25)
+            self.combo_cultura.grid(row=0, column=1, padx=10)
+
+            # Upper & Master
+            lbl_upper = tk.Label(frame_sub, text="📙 UPPER & MASTER", font=("Arial", 12, "bold"), fg="darkgreen")
+            lbl_upper.grid(row=1, column=0, sticky="w", padx=5, pady=(8,0))
+            self.combo_upper = ttk.Combobox(frame_sub,
+                values=["Upper Intermediate 1", "Upper Intermediate 2", "Upper Intermediate 3",
+                        "MAC 1", "Master 2"],
+                state="readonly", width=25)
+            self.combo_upper.grid(row=1, column=1, padx=10, pady=(8,0))
+
+            # espaço extra antes das notas
+            tk.Label(self.frame_criterios, text="").pack(pady=10)
+
         for criterio in criterios:
             frame = tk.Frame(self.frame_criterios)
-            frame.pack(pady=5, fill="x")
-            lbl = tk.Label(frame, text=criterio, width=40, anchor="w")
+            frame.pack(pady=10, fill="x")  # mais espaçamento entre notas
+            lbl = tk.Label(frame, text=criterio, width=40, anchor="w", font=("Arial", 11))
             lbl.pack(side="left")
             cb = ttk.Combobox(frame, values=OPCOES, state="readonly", width=5)
             cb.pack(side="left", padx=10)
 
-            # preencher se já existir nota lançada
             if aluno_existente:
                 chave = MAPEAMENTO_CHAVES.get(criterio, criterio)
                 if chave in aluno_existente:
@@ -193,6 +224,7 @@ class BoletimApp:
             "Professor": self.professor
         }
         valores_min, valores_max = [], []
+
         for crit, cb in self.combos.items():
             val = cb.get()
             if val == "":
@@ -204,16 +236,31 @@ class BoletimApp:
                 min_val, max_val = NOTAS_RANGE[val]
                 valores_min.append(min_val)
                 valores_max.append(max_val)
-        if nivel == "Adultos" and valores_min:
-            media_min = sum(valores_min)/len(valores_min)
-            media_max = sum(valores_max)/len(valores_max)
-            notas["NotaSugerida"] = f"{int(media_min)} - {int(media_max)}"
-            nota_final = simpledialog.askinteger(
-                "Nota Final",
-                f"Nota sugerida para {aluno_row.get('Nome', '')}: {int(media_min)}–{int(media_max)}\nDigite a nota final:",
-                minvalue=0, maxvalue=100
-            )
-            notas["Nota"] = nota_final if nota_final is not None else int((media_min+media_max)/2)
+
+        # Ajustar subnível dos Adultos
+        if nivel == "Adultos":
+            subnivel_cultura = self.combo_cultura.get() if self.combo_cultura else ""
+            subnivel_upper = self.combo_upper.get() if self.combo_upper else ""
+
+            if subnivel_cultura and subnivel_upper:
+                messagebox.showwarning("Atenção", "Selecione apenas um subnível (Cultura Adults ou Upper/Master).")
+                return
+            if not subnivel_cultura and not subnivel_upper:
+                messagebox.showwarning("Atenção", "Selecione um subnível para Adultos.")
+                return
+
+            notas["Nivel"] = "Adultos – " + (subnivel_cultura or subnivel_upper)
+
+            if valores_min:
+                media_min = sum(valores_min)/len(valores_min)
+                media_max = sum(valores_max)/len(valores_max)
+                notas["NotaSugerida"] = f"{int(media_min)} - {int(media_max)}"
+                nota_final = simpledialog.askinteger(
+                    "Nota Final",
+                    f"Nota sugerida para {aluno_row.get('Nome', '')}: {int(media_min)}–{int(media_max)}\nDigite a nota final:",
+                    minvalue=0, maxvalue=100
+                )
+                notas["Nota"] = nota_final if nota_final is not None else int((media_min+media_max)/2)
 
         # substituir se já existe
         self.resultados = [r for r in self.resultados if not (r["Aluno"] == aluno_row["Nome"] and r["Turma"] == aluno_row["Turma"])]
