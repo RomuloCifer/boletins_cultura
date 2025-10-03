@@ -3,23 +3,13 @@ from tkinter import ttk, messagebox, simpledialog
 import pandas as pd
 import os, sys
 
-# ================== SUPORTE A CAMINHOS (.py e .exe) ==================
-def app_dir() -> str:
-    if getattr(sys, "_MEIPASS", None):            # PyInstaller (onefile)
-        return sys._MEIPASS
-    if getattr(sys, "frozen", False):             # PyInstaller (onedir)
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
 
-def resource_path(*paths):
-    base = app_dir()
-    return os.path.join(base, *paths)
 
 # importa a função de gerar PDFs
 from gerar_pdfs import gerar_boletins
 
 # ====== ARQUIVOS ======
-BASE = app_dir()
+BASE = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else __file__)
 ARQUIVO_ALUNOS     = os.path.join(BASE, "alunos.xlsx")
 ARQUIVO_RESULTADOS = os.path.join(BASE, "resultados_boletim.xlsx")
 
@@ -28,12 +18,15 @@ ANTIGO_SUBNIVEIS = [
     "High Resolution 4", "High Resolution 5", "High Resolution 6",
     "Basic 5", "Basic 6",
     "New Plus Adult 3",
+    "New Plus Adult 2",
+    "New Plus Adult 1",
 ]
 
 ADULTOS_SUBNIVEIS = [
     "Express Pack 1", "Express Pack 2", "Express Pack 3",
     "Inter Teens 1", "Inter Teens 2", "Inter Teens 3",
     "Teen League 1", "Teen League 2", "Teen League 3", "Teen League 4",
+    "Mac 1", "Master 2",
 ]
 
 # ====== CRITÉRIOS POR NÍVEL ======
@@ -111,7 +104,7 @@ class BoletimApp:
         self.index = 0
 
         self.root.title("Sistema de Boletins")
-        self.root.geometry("980x860")
+        self.root.geometry("980x900")
 
         # ===== Barra de seleção =====
         frame_sel = tk.Frame(root)
@@ -120,6 +113,8 @@ class BoletimApp:
         tk.Label(frame_sel, text="Nível:").pack(side="left", padx=5)
         self.combo_nivel = ttk.Combobox(frame_sel, values=list(CRITERIOS_POR_NIVEL.keys()), state="readonly", width=20)
         self.combo_nivel.pack(side="left", padx=5)
+        # atualiza turmas quando o nível muda
+        self.combo_nivel.bind("<<ComboboxSelected>>", self.on_nivel_change)
 
         self.btn_carregar = tk.Button(frame_sel, text="Carregar turma", command=self.carregar_turma)
         self.btn_carregar.pack(side="left", padx=10)
@@ -157,8 +152,14 @@ class BoletimApp:
         self.combo_rotulo_turma = None
         self.combo_rotulo_antigo = None
         self.var_override_rotulo = tk.BooleanVar(value=False)
+        self.frame_rotulo_turma = None  # frame "Subnível da TURMA (Antigo)"
 
-        # ADULTOS: subnível único
+        # ADULTOS: subnível padrão por turma + barra
+        self.subadultos_por_turma = {}     # {"TER-QUI1530": "Express Pack 2", ...}
+        self.frame_subadultos_turma = None
+        self.combo_subadultos_turma = None
+
+        # ADULTOS: subnível por aluno (UI)
         self.combo_subadultos = None
 
         self.combos = {}
@@ -176,6 +177,45 @@ class BoletimApp:
         self.label_legenda = tk.Label(root, text=LEGENDA, justify="left", font=("Arial", 10), anchor="w")
         self.label_legenda.pack(pady=10, fill="x")
 
+    # ================== REAÇÃO À MUDANÇA DE NÍVEL ==================
+    def on_nivel_change(self, event=None):
+        """Quando o Nível muda: limpa seleção, recarrega turmas válidas e reseta a tela."""
+        nivel = (self.combo_nivel.get() or "").strip()
+
+        # Atualiza a lista de turmas para este nível
+        turmas_nivel = sorted({ a.get("Turma","") for a in self.alunos if a.get("Nivel","") == nivel })
+        self.combo_turma["values"] = turmas_nivel
+        self.combo_turma.set("")  # limpa a turma anterior
+
+        # Limpa aluno e critérios
+        self.combo_aluno_especifico.set("")
+        self.combo_aluno_especifico["values"] = []
+        self.alunos_filtrados = []
+        self.index = 0
+        self.label_nome.config(text="")
+
+        # Some a barra de rótulo dos Antigos se sair de Antigo
+        if nivel != "Antigo" and self.frame_rotulo_turma is not None:
+            try:
+                self.frame_rotulo_turma.destroy()
+            except:
+                pass
+            self.frame_rotulo_turma = None
+            self.combo_rotulo_turma = None
+
+        # Some a barra de subnível por turma de Adultos se sair de Adultos
+        if nivel != "Adultos" and self.frame_subadultos_turma is not None:
+            try:
+                self.frame_subadultos_turma.destroy()
+            except:
+                pass
+            self.frame_subadultos_turma = None
+            self.combo_subadultos_turma = None
+
+        # Limpa painel de critérios
+        for w in self.frame_criterios.winfo_children():
+            w.destroy()
+
     # ================== AÇÕES DE TELA ==================
     def gerar_pdfs(self):
         try:
@@ -190,20 +230,32 @@ class BoletimApp:
             messagebox.showwarning("Atenção", "Selecione um nível.")
             return
 
-        # lista de turmas para o nível
+        # turmas disponíveis para este nível
         turmas_nivel = sorted({ a.get("Turma","") for a in self.alunos if a.get("Nivel","") == nivel })
         self.combo_turma["values"] = turmas_nivel
 
+        # se a turma atual não pertence a este nível, limpe-a
         turma_escolhida = self.combo_turma.get().strip()
+        if turma_escolhida and turma_escolhida not in turmas_nivel:
+            turma_escolhida = ""
+            self.combo_turma.set("")
+
+        # peça a turma quando houver mais de uma opção
         if len(turmas_nivel) > 1 and not turma_escolhida:
             messagebox.showinfo("Seleção de Turma",
                 "Há várias turmas para este nível. Selecione a turma no campo 'Turma:' e clique em 'Carregar turma'.")
             return
+
+        # se só tem uma, selecione automaticamente
         if not turma_escolhida and len(turmas_nivel) == 1:
             turma_escolhida = turmas_nivel[0]
             self.combo_turma.set(turma_escolhida)
 
-        # filtra por Nível + Turma
+        if not turma_escolhida:
+            # nada a fazer sem turma
+            return
+
+        # agora sim: filtra por Nível + Turma
         self.alunos_filtrados = [
             a for a in self.alunos
             if a.get("Nivel","") == nivel and a.get("Turma","") == turma_escolhida
@@ -212,19 +264,35 @@ class BoletimApp:
             messagebox.showinfo("Info", f"Não há alunos para {nivel} / {turma_escolhida}.")
             return
 
-        # ANTIGO: rótulo da turma
+        # ANTIGO: subnível da turma
         if nivel == "Antigo":
-            if self.combo_rotulo_turma is None:
-                barra = tk.Frame(self.root)
-                barra.pack(pady=(0, 6))
-                tk.Label(barra, text="Subnível da TURMA (Antigo):").pack(side="left")
-                self.combo_rotulo_turma = ttk.Combobox(barra, values=ANTIGO_SUBNIVEIS, width=28)
+            if self.frame_rotulo_turma is None:
+                self.frame_rotulo_turma = tk.Frame(self.root)
+                self.frame_rotulo_turma.pack(pady=(0, 6))
+                tk.Label(self.frame_rotulo_turma, text="Subnível da TURMA (Antigo):").pack(side="left")
+                self.combo_rotulo_turma = ttk.Combobox(self.frame_rotulo_turma, values=ANTIGO_SUBNIVEIS, width=28)
                 self.combo_rotulo_turma.pack(side="left", padx=8)
-                tk.Button(barra, text="Aplicar a todos desta turma", command=self._aplicar_rotulo_turma)\
+                tk.Button(self.frame_rotulo_turma, text="Aplicar a todos desta turma", command=self._aplicar_rotulo_turma)\
                     .pack(side="left", padx=6)
 
             rotulo_salvo = self.rotulo_antigo_por_turma.get(turma_escolhida, "")
             self.combo_rotulo_turma.set(rotulo_salvo or ANTIGO_SUBNIVEIS[0])
+
+        # ADULTOS: subnível padrão da turma
+        if nivel == "Adultos":
+            if self.frame_subadultos_turma is None:
+                self.frame_subadultos_turma = tk.Frame(self.root)
+                self.frame_subadultos_turma.pack(pady=(0, 6))
+                tk.Label(self.frame_subadultos_turma, text="Subnível da TURMA (Adultos):").pack(side="left")
+                self.combo_subadultos_turma = ttk.Combobox(
+                    self.frame_subadultos_turma, values=ADULTOS_SUBNIVEIS, width=28, state="readonly"
+                )
+                self.combo_subadultos_turma.pack(side="left", padx=8)
+                tk.Button(self.frame_subadultos_turma, text="Aplicar a todos desta turma",
+                          command=self._aplicar_subadultos_turma).pack(side="left", padx=6)
+
+            sub_salvo = self.subadultos_por_turma.get(turma_escolhida, "")
+            self.combo_subadultos_turma.set(sub_salvo or ADULTOS_SUBNIVEIS[0])
 
         # nomes no combo de aluno
         self.combo_aluno_especifico["values"] = [a["Nome"] for a in self.alunos_filtrados]
@@ -246,6 +314,22 @@ class BoletimApp:
             return
         self.rotulo_antigo_por_turma[turma] = rotulo
         messagebox.showinfo("OK", f"Subnível definido para a turma {turma}: {rotulo}")
+
+    def _aplicar_subadultos_turma(self):
+        """Salva o subnível escolhido para a turma atual (Adultos)."""
+        turma = self.combo_turma.get().strip()
+        if not turma:
+            messagebox.showwarning("Atenção", "Selecione a Turma primeiro.")
+            return
+        sub = (self.combo_subadultos_turma.get() or "").strip() if self.combo_subadultos_turma else ""
+        if not sub:
+            messagebox.showwarning("Atenção", "Escolha um subnível (ex.: Express Pack 2).")
+            return
+        if sub not in ADULTOS_SUBNIVEIS:
+            messagebox.showwarning("Atenção", "Escolha um subnível válido de Adultos.")
+            return
+        self.subadultos_por_turma[turma] = sub
+        messagebox.showinfo("OK", f"Subnível (Adultos) definido para a turma {turma}: {sub}")
 
     def carregar_aluno_especifico(self):
         nome = self.combo_aluno_especifico.get()
@@ -291,7 +375,7 @@ class BoletimApp:
 
         nivel_atual = getattr(self, "aluno_atual", {}).get("Nivel", "") if hasattr(self, "aluno_atual") else ""
 
-        # Adultos → subnível único (lista fixa)
+        # Adultos → subnível único (lista fixa) por ALUNO (prefill com padrão da turma)
         if nivel_atual == "Adultos":
             frame_sub = tk.LabelFrame(self.frame_criterios, text="Subnível (Adultos)", padx=10, pady=10)
             frame_sub.pack(pady=10, fill="x")
@@ -300,10 +384,17 @@ class BoletimApp:
             self.combo_subadultos = ttk.Combobox(frame_sub, values=ADULTOS_SUBNIVEIS, state="readonly", width=25)
             self.combo_subadultos.grid(row=0, column=1, padx=10)
 
+            # Prefill: (1) valor salvo no resultados, (2) subnível padrão da TURMA (se houver)
+            pref = ""
             if aluno_existente:
                 salvo = str(aluno_existente.get("Nivel", "")).strip()
                 if salvo in ADULTOS_SUBNIVEIS:
-                    self.combo_subadultos.set(salvo)
+                    pref = salvo
+            if not pref:
+                turma_atual = getattr(self, "aluno_atual", {}).get("Turma", "")
+                pref = self.subadultos_por_turma.get(turma_atual, "")
+            if pref:
+                self.combo_subadultos.set(pref)
 
             tk.Label(self.frame_criterios, text="").pack(pady=10)
         else:
@@ -445,10 +536,22 @@ class BoletimApp:
 
         # Regras específicas por nível
         if nivel == "Adultos":
+            # pega do combobox do aluno; se vazio, usa o padrão da TURMA (se definido)
             subnivel = self.combo_subadultos.get().strip() if self.combo_subadultos else ""
             if not subnivel:
-                messagebox.showwarning("Atenção", "Selecione o subnível de Adultos (Ex.: Express Pack 1, Inter Teens 2...).")
+                turma_atual = aluno_row.get("Turma", "")
+                subnivel = self.subadultos_por_turma.get(turma_atual, "")
+
+            if not subnivel:
+                messagebox.showwarning("Atenção",
+                    "Selecione o subnível de Adultos para este aluno ou defina o padrão da turma em "
+                    "'Subnível da TURMA (Adultos)'.")
                 return
+
+            # guarda como padrão da turma (facilita próximos alunos)
+            turma_atual = aluno_row.get("Turma", "")
+            if turma_atual and subnivel in ADULTOS_SUBNIVEIS:
+                self.subadultos_por_turma[turma_atual] = subnivel
 
             notas["Nivel"] = subnivel  # rótulo exato salvo
 

@@ -15,7 +15,7 @@ def resource_path(*paths):
     base = app_dir()
     return os.path.join(base, *paths)
 
-BASE = app_dir()
+BASE = os.path.dirname(sys.executable if getattr(sys, "frozen", False) else __file__)
 
 # RESULTADOS e SAÍDA ao lado do app (graváveis)
 ARQUIVO_RESULTADOS = os.path.join(BASE, "resultados_boletim.xlsx")
@@ -23,7 +23,7 @@ PASTA_SAIDA        = os.path.join(BASE, "boletins_pdf")
 os.makedirs(PASTA_SAIDA, exist_ok=True)
 
 # MODELOS (somente leitura) embutidos no EXE ou presentes na pasta do projeto
-PASTA_MODELOS = resource_path("Modelos")
+PASTA_MODELOS = os.path.join(BASE, "Modelos")
 
 # Mapeamento de nível fixo -> modelo correspondente
 MAPA_MODELOS = {
@@ -38,12 +38,15 @@ ANTIGO_SUBNIVEIS = [
     "High Resolution 4", "High Resolution 5", "High Resolution 6",
     "Basic 5", "Basic 6",
     "New Plus Adult 3",
+    "New Plus Adult 2",
+    "New Plus Adult 1",
 ]
 
 ADULTOS_SUBNIVEIS = [
     "Express Pack 1", "Express Pack 2", "Express Pack 3",
     "Inter Teens 1", "Inter Teens 2", "Inter Teens 3",
     "Teen League 1", "Teen League 2", "Teen League 3", "Teen League 4",
+    "Mac 1", "Master 2",
 ]
 
 def _replace_all(texto: str, dados: dict) -> str:
